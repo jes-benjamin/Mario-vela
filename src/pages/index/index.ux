@@ -1,0 +1,2378 @@
+<template>
+  <div class="container">
+
+    <!-- ===== Menu Screen ===== -->
+    <div class="screen-menu" if="{{gameState === 'menu'}}">
+      <text class="game-title">喵哩奥</text>
+      <text class="game-subtitle">Meow Rio</text>
+      <text class="menu-coins">金币 {{coins}}</text>
+      <text class="menu-btn menu-btn-primary" onclick="startNewGame">开始游戏</text>
+      <text class="menu-btn" onclick="showSaves">读取存档</text>
+      <text class="menu-btn" onclick="showShop">商店</text>
+      <text class="menu-btn" onclick="showAbout">关于</text>
+    </div>
+
+    <!-- ===== Save List Screen ===== -->
+    <div class="screen-saves" if="{{gameState === 'saves'}}">
+      <text class="screen-title">存档列表</text>
+      <scroll class="save-scroll" style="height:{{saveListH}}px;" if="{{saveListDisplay.length > 0}}">
+        <div class="save-list">
+          <div for="{{saveListDisplay}}" tid="slot"
+               class="save-item"
+               onclick="loadSave($item.slot)"
+               onlongpress="onSaveLongPress($item.slot)">
+            <text class="save-name">{{$item.name}}</text>
+            <text class="save-info-text">死亡{{$item.deaths}}次 · {{$item.timeStr}}</text>
+            <text class="save-hint-text">长按删除</text>
+          </div>
+        </div>
+      </scroll>
+      <text class="save-empty" if="{{saveListDisplay.length === 0}}">暂无存档</text>
+      <text class="clear-btn" onclick="confirmClearAll" if="{{saveListDisplay.length > 0}}">清空所有存档</text>
+      <text class="back-hint">右滑返回主界面</text>
+    </div>
+
+    <!-- ===== Shop Screen ===== -->
+    <div class="screen-shop" if="{{gameState === 'shop'}}">
+      <text class="screen-title">商店</text>
+      <text class="shop-coins">我的金币：{{coins}}</text>
+      <list class="shop-list-view" style="height:{{shopListH}}px;">
+        <list-item class="shop-header-item">
+          <text class="shop-section">皮肤</text>
+        </list-item>
+        <list-item for="{{shopList}}" tid="uid" class="shop-row-item">
+          <div class="shop-item" onclick="buyOrEquip($item.idx)">
+            <image class="shop-skin-img" src="{{$item.img}}"></image>
+            <div class="shop-info">
+              <text class="shop-name">{{$item.name}}</text>
+              <text class="shop-status">{{$item.status}}</text>
+            </div>
+          </div>
+        </list-item>
+        <list-item class="shop-header-item">
+          <text class="shop-section">道具</text>
+        </list-item>
+        <list-item for="{{shopItems}}" tid="id" class="shop-row-item">
+          <div class="shop-item" onclick="buyItem($item.idx)">
+            <image class="shop-item-img" src="{{$item.img}}"></image>
+            <div class="shop-info">
+              <text class="shop-name">{{$item.name}}</text>
+              <text class="shop-status">{{$item.status}}</text>
+            </div>
+          </div>
+        </list-item>
+      </list>
+      <text class="back-hint" onclick="backToMenu">点击这里返回主界面</text>
+    </div>
+
+    <!-- ===== Delete Confirm Overlay ===== -->
+    <div class="overlay" if="{{gameState === 'confirmdelete'}}">
+      <div class="overlay-panel" style="top:{{overlayY}}px;">
+        <text class="overlay-title">删除存档</text>
+        <text class="overlay-sub">确定要删除这个存档吗？</text>
+        <text class="overlay-btn" onclick="confirmDeleteSave">确认删除</text>
+        <text class="overlay-btn-sm" onclick="cancelDeleteSave">取消</text>
+      </div>
+    </div>
+
+    <!-- ===== About Screen ===== -->
+    <div class="screen-about" if="{{gameState === 'about'}}">
+      <div class="about-content">
+        <image class="app-logo" src="/common/images/icon.png"></image>
+        <text class="app-name">喵哩奥</text>
+        <text class="app-version">V1.0.5</text>
+        <text class="section-label">开发团队</text>
+        <div class="dev-card">
+          <text class="person-text">@矩阵工作室</text>
+        </div>
+        <text class="section-label">参与开发的人员</text>
+        <div class="dev-card">
+          <text class="person-text">@jes_（Benjamin）</text>
+        </div>
+        <text class="link-label">更多资源请访问</text>
+        <text class="link-text">bandbbs.cn</text>
+      </div>
+    </div>
+
+    <!-- ===== Game Screen ===== -->
+    <div class="screen-game" if="{{gameState === 'playing' || gameState === 'dead' || gameState === 'levelcomplete'}}">
+      <div class="hud" style="top:{{hudTop}}px;">
+        <text class="hud-text">第{{hudLevel}}关 金币{{hudCoins}} 死亡{{hudDeaths}}次</text>
+        <text class="hud-shield" if="{{hudShield}}">护盾</text>
+      </div>
+
+      <div class="game-area" style="top:{{gameTop}}px;height:{{gameH}}px;">
+        <!-- World container: holds the WHOLE level, scrolled by left offset -->
+        <div class="world-container" style="top:{{worldTop}}px;left:{{worldLeft}}px;width:{{worldW}}px;height:{{worldH}}px;">
+          <!-- Static tiles: rendered ONCE per level (world coordinates) -->
+          <div for="{{visibleTiles}}" tid="id" class="tile-wrap" style="{{$item.style}}">
+            <image src="{{$item.image}}" class="tile-inner" />
+          </div>
+          <!-- Dynamic tiles: mushrooms / question blocks / falling platforms / checkpoints -->
+          <div for="{{dynamicTiles}}" tid="id" class="tile-wrap" style="{{$item.style}}">
+            <image src="{{$item.image}}" class="tile-inner" style="{{$item.imgStyle}}" />
+          </div>
+          <!-- Enemies: world coordinates, scroll with the map -->
+          <div for="{{visibleEnemies}}" tid="id" class="enemy-wrap" style="{{$item.style}}">
+            <image src="/common/images/cat_enemy.png" class="enemy-inner" />
+          </div>
+          <!-- Items popped from lucky blocks -->
+          <div for="{{visibleItems}}" tid="id" class="item-wrap" style="{{$item.style}}">
+            <image src="{{$item.image}}" class="item-inner" />
+          </div>
+          <!-- Player: world coordinates (camera keeps it centered) -->
+          <div class="player-wrap" style="{{playerStyle}}">
+            <image src="{{playerImg}}" class="{{playerInnerClass}}" />
+          </div>
+        </div>
+      </div>
+
+      <div class="ctrl-left" style="top:{{ctrlLeftY}}px;" ontouchstart="onLeftStart" ontouchend="onLeftEnd" ontouchmove="onLeftMove">
+        <text class="ctrl-text">←</text>
+      </div>
+      <div class="ctrl-jump" style="top:{{ctrlJumpY}}px;" ontouchstart="onJumpStart" ontouchend="onJumpEnd">
+        <text class="ctrl-text">跳</text>
+      </div>
+      <div class="ctrl-right" style="top:{{ctrlLeftY}}px;" ontouchstart="onRightStart" ontouchend="onRightEnd" ontouchmove="onRightMove">
+        <text class="ctrl-text">→</text>
+      </div>
+    </div>
+
+    <div class="overlay" if="{{gameState === 'dead'}}">
+      <div class="overlay-panel" style="top:{{overlayY}}px;">
+        <text class="overlay-title">你死了！</text>
+        <text class="overlay-sub">再接再厉</text>
+        <text class="overlay-btn" onclick="retry">重试</text>
+        <text class="overlay-btn-sm" onclick="backToMenu">返回主菜单</text>
+      </div>
+    </div>
+
+    <div class="overlay" if="{{gameState === 'levelcomplete'}}">
+      <div class="overlay-panel" style="top:{{overlayY}}px;">
+        <text class="overlay-title">过关！</text>
+        <text class="overlay-sub">死亡{{hudDeaths}}次</text>
+        <text class="overlay-btn" onclick="nextLevel">下一关</text>
+        <text class="overlay-btn-sm" onclick="backToMenu">返回主菜单</text>
+      </div>
+    </div>
+
+    <div class="overlay" if="{{gameState === 'gamecomplete'}}">
+      <div class="overlay-panel" style="top:{{overlayY}}px;">
+        <text class="overlay-title">通关！</text>
+        <text class="overlay-sub">恭喜你成为喵哩奥大师</text>
+        <text class="overlay-btn" onclick="backToMenu">返回主菜单</text>
+      </div>
+    </div>
+
+  </div>
+</template>
+
+<style>
+.container {
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+}
+
+/* ===== Menu Screen ===== */
+.screen-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.menu-icon-box {
+  width: 72px;
+  height: 72px;
+  background-color: #333344;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #5566aa;
+  border-radius: 18px;
+  margin-bottom: 12px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.menu-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+}
+.game-title {
+  color: #FF8C69;
+  font-size: 48px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.game-subtitle {
+  color: #888888;
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+.menu-coins {
+  color: #FFD700;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 18px;
+}
+.menu-btn {
+  color: #ffffff;
+  font-size: 26px;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #5566aa;
+  border-radius: 16px;
+  padding: 8px 48px;
+  margin-bottom: 12px;
+}
+.menu-btn-primary {
+  border-color: #FF8C69;
+}
+
+/* ===== Shop Screen ===== */
+.screen-shop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+  flex-direction: column;
+  align-items: center;
+}
+.shop-coins {
+  color: #FFD700;
+  font-size: 22px;
+  margin-bottom: 10px;
+}
+.shop-list-view {
+  width: 100%;
+  height: 300px;
+}
+.shop-header-item {
+  width: 100%;
+  height: 40px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.shop-section {
+  color: #8888aa;
+  font-size: 22px;
+  font-weight: bold;
+}
+.shop-row-item {
+  width: 100%;
+  height: 76px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.shop-item {
+  width: 360px;
+  height: 64px;
+  background-color: #2a2a4a;
+  border-radius: 14px;
+  padding: 0 16px;
+  flex-direction: row;
+  align-items: center;
+}
+.shop-skin-img {
+  width: 40px;
+  height: 44px;
+  margin-right: 14px;
+}
+.shop-item-img {
+  width: 36px;
+  height: 36px;
+  margin-right: 14px;
+}
+.shop-info {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.shop-name {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: bold;
+}
+.shop-status {
+  color: #FFD700;
+  font-size: 18px;
+  margin-top: 2px;
+}
+
+/* ===== Save List Screen ===== */
+.screen-saves {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+  flex-direction: column;
+  align-items: center;
+}
+.screen-title {
+  color: #FFD700;
+  font-size: 32px;
+  font-weight: bold;
+  margin-top: 30px;
+  margin-bottom: 14px;
+}
+.save-scroll {
+  width: 360px;
+  height: 280px;
+  flex-direction: column;
+}
+.save-list {
+  width: 360px;
+  flex-direction: column;
+  align-items: center;
+}
+.save-item {
+  width: 320px;
+  background-color: #2a2a4a;
+  border-radius: 12px;
+  padding: 12px 20px;
+  margin-bottom: 8px;
+  flex-direction: column;
+  align-items: center;
+}
+.save-name {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.save-info-text {
+  color: #8888aa;
+  font-size: 18px;
+}
+.save-hint-text {
+  color: #555566;
+  font-size: 14px;
+  margin-top: 4px;
+}
+.save-empty {
+  color: #666688;
+  font-size: 24px;
+  margin-top: 80px;
+  margin-bottom: 20px;
+}
+.clear-btn {
+  color: #FF4444;
+  font-size: 22px;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #FF4444;
+  border-radius: 14px;
+  padding: 8px 30px;
+  margin-top: 10px;
+}
+.back-hint {
+  color: #555555;
+  font-size: 16px;
+  margin-top: 12px;
+}
+
+/* ===== About Screen =====
+   Plain centered column (same pattern as the main menu, which works on
+   round screens) — no scroll/list, content is compressed to fit one screen */
+.screen-about {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #000000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.about-content {
+  width: 400px;
+  flex-direction: column;
+  align-items: center;
+}
+.app-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+}
+.app-name {
+  color: #ffffff;
+  font-size: 34px;
+  font-weight: bold;
+  margin-top: 6px;
+}
+.app-version {
+  color: #888888;
+  font-size: 22px;
+  font-weight: bold;
+  margin-top: 2px;
+}
+.section-label {
+  color: #888888;
+  font-size: 24px;
+  font-weight: bold;
+  margin-top: 14px;
+}
+.dev-card {
+  width: 360px;
+  height: 64px;
+  border-radius: 32px;
+  background-color: #2a2a2a;
+  margin-top: 6px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+.person-text {
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: bold;
+}
+.link-label {
+  color: #888888;
+  font-size: 24px;
+  font-weight: bold;
+  margin-top: 14px;
+}
+.link-text {
+  color: #ffffff;
+  font-size: 30px;
+  font-weight: bold;
+  margin-top: 4px;
+}
+
+/* ===== Game Screen ===== */
+.screen-game {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a2e;
+}
+.hud {
+  position: absolute;
+  top: 18px;
+  left: 0;
+  width: 100%;
+  flex-direction: row;
+  justify-content: center;
+}
+.hud-text {
+  color: #aaaacc;
+  font-size: 22px;
+}
+.hud-shield {
+  color: #4FC3F7;
+  font-size: 22px;
+  font-weight: bold;
+  margin-left: 10px;
+}
+.game-area {
+  position: absolute;
+  top: 55px;
+  left: 0;
+  width: 100%;
+  height: 299px;
+  background-color: #5C94FC;
+}
+.world-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 299px;
+}
+
+/* Tile wrapper + inner image — VelaOS compatible (no object-fit:fill, no z-index) */
+.tile-wrap {
+  position: absolute;
+  width: 23px;
+  height: 23px;
+}
+.tile-inner {
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+}
+/* Player wrapper + inner image */
+.player-wrap {
+  position: absolute;
+  width: 18px;
+  height: 20px;
+}
+.player-inner-sm {
+  width: 18px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.player-inner-lg {
+  width: 26px;
+  height: 28px;
+  flex-shrink: 0;
+}
+/* Item wrapper + inner image */
+.item-wrap {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+.item-inner {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+/* Enemy wrapper + inner image */
+.enemy-wrap {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+.enemy-inner {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Controls */
+.ctrl-left {
+  position: absolute;
+  top: 362px;
+  left: 72px;
+  width: 64px;
+  height: 64px;
+  background-color: #333355;
+  border-radius: 16px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #4a4a6a;
+}
+.ctrl-jump {
+  position: absolute;
+  top: 365px;
+  left: 170px;
+  width: 126px;
+  height: 58px;
+  background-color: #553355;
+  border-radius: 16px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #6a4a6a;
+}
+.ctrl-right {
+  position: absolute;
+  top: 362px;
+  left: 330px;
+  width: 64px;
+  height: 64px;
+  background-color: #333355;
+  border-radius: 16px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #4a4a6a;
+}
+.ctrl-text {
+  color: #ffffff;
+  font-size: 28px;
+}
+
+/* ===== Overlays ===== */
+/* Solid background, no transparency tricks: some devices drop the whole
+   style block when they hit an unsupported property like `opacity`. */
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #0f0f1c;
+}
+/* Content panel: absolutely placed at overlayY (computed from screen height),
+   so it never depends on flex centering support */
+.overlay-panel {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+.overlay-title {
+  color: #FF8C69;
+  font-size: 44px;
+  font-weight: bold;
+  margin-bottom: 16px;
+}
+.overlay-sub {
+  color: #aaaacc;
+  font-size: 22px;
+  margin-bottom: 32px;
+}
+.overlay-btn {
+  color: #ffffff;
+  font-size: 26px;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #FF8C69;
+  border-radius: 16px;
+  padding: 10px 40px;
+  margin-bottom: 16px;
+}
+.overlay-btn-sm {
+  color: #888888;
+  font-size: 22px;
+  padding: 6px 20px;
+}
+</style>
+
+<script>
+/**
+ * 喵哩奥 (Meow Rio) — VelaOS Quick App
+ * Target: Xiaomi Watch S4 41mm (466x466 round display)
+ *
+ * SAVE SYSTEM FIX:
+ * - In-memory cache mirror for synchronous reads (no race conditions)
+ * - Pre-load saves on app init (preloadSaveCache)
+ * - Auto-save at checkpoints AND level completion
+ * - Fire-and-forget async writes to @system.storage
+ * - Cache always updated synchronously before async write
+ *
+ * 100 UNIQUE LEVELS:
+ * - Seeded PRNG for deterministic generation
+ * - Each level has unique seed → unique layout
+ * - Varied terrain: spikes, gaps, platforms, springs, enemies, falling blocks, invisible blocks
+ * - All levels solvable (max jump ~4 tiles, stepping stones provided)
+ * - Checkpoint at ~45% of each level
+ *
+ * PERFORMANCE OPTIMIZATION (with texture images):
+ * - Camera snapping: camera X snapped to tile boundary (offsetX always 0)
+ * - Tile styles only change when camCol changes
+ * - 20fps game loop (50ms)
+ * - Dirty-checked player DOM updates
+ * - Throttled enemy DOM updates (every 4 frames)
+ * - Pre-computed image path lookup table
+ * - Bitwise OR (| 0) for fast integer math
+ */
+
+// ===== Constants =====
+var TILE = 23
+var SCREEN_W = 466       // logical screen width (designWidth)
+var GRAVITY = 0.5
+var JUMP_FORCE = -10.0
+var MOVE_SPEED = 3.0
+var MAX_FALL = 8
+var PLAYER_W = 18
+var PLAYER_H = 20
+var BIG_W = 26
+var BIG_H = 28
+var GAME_LOOP_MS = 50
+var TOTAL_LEVELS = 150
+var SPEED_FRAMES = 160        // speed-boost duration (~8s at 20fps)
+var SPEED_MULT = 1.6
+
+// Pre-computed tile image paths
+var TILE_IMG = {
+  '#':  '/common/images/tile_brick.png',
+  '#t': '/common/images/tile_brick_top.png',
+  '=':  '/common/images/tile_platform.png',
+  '^':  '/common/images/tile_spike.png',
+  'I':  '/common/images/tile_question.png',
+  'F':  '/common/images/tile_falling.png',
+  'C':  '/common/images/tile_checkpoint.png',
+  'G':  '/common/images/tile_goal.png',
+  'S':  '/common/images/tile_spring.png',
+  'M':  '/common/images/tile_mushroom.png',
+  'P':  '/common/images/tile_pipe.png',
+  'o':  '/common/images/tile_coin.png'
+}
+
+// Solid tile types
+var SOLID = { '#': 1, '=': 1, 'P': 1 }
+
+// ===== Seeded PRNG (deterministic level generation) =====
+function makeRNG(seed) {
+  var s = seed | 0
+  if (s === 0) s = 1
+  return function() {
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    return s / 0x7fffffff
+  }
+}
+
+// ===== Level Name Pool (100 unique names) =====
+var LEVEL_NAMES = [
+  "初出茅庐", "小心陷阱", "弹跳高手", "终极挑战", "暗藏杀机",
+  "步步惊心", "如履薄冰", "机关重重", "险象环生", "绝处逢生",
+  "柳暗花明", "峰回路转", "千钧一发", "危在旦夕", "命悬一线",
+  "生死攸关", "破釜沉舟", "背水一战", "孤注一掷", "困兽犹斗",
+  "龙潭虎穴", "刀山火海", "枪林弹雨", "明枪暗箭", "尔虞我诈",
+  "勾心斗角", "声东击西", "暗度陈仓", "偷梁换柱", "无中生有",
+  "欲擒故纵", "抛砖引玉", "擒贼擒王", "釜底抽薪", "浑水摸鱼",
+  "金蝉脱壳", "关门捉贼", "远交近攻", "假道伐虢", "偷天换日",
+  "移花接木", "李代桃僵", "指桑骂槐", "假痴不癫", "上屋抽梯",
+  "树上开花", "反客为主", "美人计", "空城计", "苦肉计",
+  "连环计", "走为上计", "地雷阵", "弹簧床", "隐形墙",
+  "落石谷", "毒刺丛", "深渊桥", "迷宫塔", "幻影道",
+  "冰封岭", "熔岩洞", "风暴峡", "迷雾林", "星光路",
+  "月光谷", "日影峰", "云海桥", "雷鸣崖", "彩虹门",
+  "水晶宫", "黑暗城", "光明塔", "混沌界", "秩序门",
+  "时间隙", "空间洞", "灵魂渊", "命运轮", "梦境桥",
+  "现实路", "虚幻谷", "永恒峰", "瞬间崖", "无限门",
+  "有限界", "有形塔", "无形洞", "有声谷", "无声桥",
+  "有色路", "无色峰", "有味崖", "无味门", "有心界",
+  "无心塔", "有道洞", "无道谷", "有法桥", "无法路",
+  "云顶天宫", "海底遗迹", "熔火之心", "极光冰原", "黄沙古城",
+  "苍翠林海", "断崖绝壁", "幽静庭院", "星辰回廊", "月影浮桥",
+  "晨曦山道", "暮色要塞", "雷霆高塔", "潮汐洞窟", "风语平原",
+  "荒芜废土", "机关迷城", "幻梦境域", "碧波深潭", "赤焰峡谷",
+  "白银雪岭", "墨玉长廊", "琉璃栈道", "浮空群岛", "地下暗河",
+  "古树洞天", "巨石阵群", "流沙秘境", "钟乳石林", "迷雾沼泽",
+  "极寒冰川", "炙热熔岩", "风暴云巅", "静水湖泊", "花海秘境",
+  "幽光森林", "碎石荒野", "悬崖吊桥", "回旋迷宫", "天空之城",
+  "深渊裂谷", "黄金圣殿", "暗影王座", "时空裂隙", "终焉之门"
+]
+
+// ===== Level Generator =====
+function makeLevelData(num) {
+  var rng = makeRNG(num * 7919 + 31)
+  var width = 42 + ((num * 3) % 18)  // 42-59
+  var H = 13
+  var rows = []
+  for (var r = 0; r < H; r++) {
+    rows.push([])
+    for (var c = 0; c < width; c++) rows[r].push(' ')
+  }
+
+  // Ground: bottom 3 rows (10, 11, 12)
+  for (var r = 10; r < H; r++) {
+    for (var c = 0; c < width; c++) rows[r][c] = '#'
+  }
+
+  // Start platform: first 4 columns walls on rows 6-9
+  for (var r = 6; r < 10; r++) {
+    for (var c = 0; c < 4; c++) rows[r][c] = '#'
+  }
+
+  // Goal area: last 3 columns walls on rows 6-9
+  for (var r = 6; r < 10; r++) {
+    for (var c = width - 3; c < width; c++) rows[r][c] = '#'
+  }
+  // Goal flag
+  rows[6][width - 4] = 'G'
+  rows[7][width - 4] = '#'
+  rows[8][width - 4] = '='
+  rows[9][width - 4] = '#'
+
+  // Checkpoint column (placed AFTER terrain generation to prevent overwriting)
+  var cpCol = (width * 0.45) | 0
+
+  // === Generate terrain features ===
+  // Work zone: columns 5 to width-5
+  var zoneStart = 5
+  var zoneEnd = width - 5
+  var zoneLen = zoneEnd - zoneStart
+
+  // Feature density increases with level number
+  var density = 0.15 + (num * 0.005)
+  if (density > 0.45) density = 0.45
+
+  // Segments: divide zone into segments, each gets a feature
+  var segSize = 4 + ((num * 7) % 3)  // 4-6 tiles per segment
+  var pos = zoneStart
+
+  while (pos < zoneEnd - 2) {
+    var featRoll = rng()
+    var segLen = segSize + ((rng() * 3) | 0)
+    if (pos + segLen > zoneEnd) segLen = zoneEnd - pos
+    if (segLen < 2) segLen = 2
+
+    // Choose feature type based on level difficulty
+    var featType = (rng() * 8) | 0
+
+    // Higher levels get more dangerous features
+    if (num > 50 && featType < 2) featType = (rng() * 8) | 0
+
+    if (featType === 0) {
+      // Spikes on ground
+      var spikeCount = 1 + ((rng() * 2) | 0)
+      for (var si = 0; si < spikeCount && pos < zoneEnd; si++) {
+        rows[9][pos] = '^'
+        pos++
+      }
+    } else if (featType === 1) {
+      // Gap in ground (pit) — ensure not too wide
+      var gapW = 2 + ((rng() * 2) | 0)
+      if (gapW > 3) gapW = 3
+      for (var gi = 0; gi < gapW && pos < zoneEnd; gi++) {
+        rows[10][pos] = ' '
+        rows[11][pos] = ' '
+        rows[12][pos] = ' '
+        pos++
+      }
+    } else if (featType === 2) {
+      // Floating platform at height 7 or 8 (reachable: max jump from ground row 9 = row 5)
+      var platRow = 7 + ((rng() * 2) | 0)
+      var platW = 2 + ((rng() * 3) | 0)
+      for (var pi = 0; pi < platW && pos < zoneEnd; pi++) {
+        if (rows[platRow][pos] === ' ') rows[platRow][pos] = '='
+        pos++
+      }
+    } else if (featType === 3) {
+      // Spring on ground
+      rows[9][pos] = 'S'
+      pos++
+      // Maybe spike after spring
+      if (rng() > 0.5 && pos < zoneEnd) {
+        rows[9][pos] = '^'
+        pos++
+      }
+    } else if (featType === 4) {
+      // Falling platform at row 8
+      var fpW = 2 + ((rng() * 2) | 0)
+      for (var fi = 0; fi < fpW && pos < zoneEnd; fi++) {
+        rows[8][pos] = 'F'
+        pos++
+      }
+    } else if (featType === 5) {
+      // Invisible block at row 7 (hidden question block)
+      rows[7][pos] = 'I'
+      pos++
+      // Platform leading away
+      if (pos < zoneEnd) {
+        rows[8][pos] = '='
+        pos++
+      }
+    } else if (featType === 6) {
+      // Enemy on ground
+      rows[9][pos] = 'E'
+      pos++
+      // Clear space around enemy
+      if (pos < zoneEnd) pos++
+    } else {
+      // Stepping stones pattern (up then down)
+      rows[8][pos] = '='
+      pos++
+      if (pos < zoneEnd) {
+        rows[7][pos] = '='
+        pos++
+      }
+      if (pos < zoneEnd) {
+        rows[8][pos] = '='
+        pos++
+      }
+    }
+
+    // Gap between features
+    var gap = 1 + ((rng() * 3) | 0)
+    pos += gap
+  }
+
+  // Add a mushroom (life saver) at ~25% of level
+  var mushCol = (width * 0.25) | 0
+  if (mushCol > zoneStart && mushCol < zoneEnd) {
+    if (rows[8][mushCol] === ' ') {
+      rows[8][mushCol] = 'M'
+    } else if (rows[7][mushCol] === ' ') {
+      rows[7][mushCol] = 'M'
+    }
+  }
+
+  // Ensure path is solvable: check for walls taller than 4 tiles and add stepping stones
+  for (var c2 = zoneStart; c2 < zoneEnd; c2++) {
+    var wallHeight = 0
+    for (var r2 = 9; r2 >= 5; r2--) {
+      if (rows[r2][c2] === '#' || rows[r2][c2] === '=') {
+        wallHeight++
+      } else {
+        break
+      }
+    }
+    // If wall is too tall (5+ blocks), add a stepping stone
+    if (wallHeight >= 5) {
+      if (rows[9 - wallHeight + 2] && rows[9 - wallHeight + 2][c2] === ' ') {
+        rows[9 - wallHeight + 2][c2] = '='
+      }
+    }
+  }
+
+  // Place checkpoint AFTER terrain generation (prevents overwriting)
+  // Ensure ground is solid at checkpoint
+  if (rows[10][cpCol] === ' ') {
+    rows[10][cpCol] = '#'
+    rows[11][cpCol] = '#'
+    rows[12][cpCol] = '#'
+  }
+  // Clear any obstacle at checkpoint row and place it
+  rows[9][cpCol] = 'C'
+
+  // === Coins: scattered on the ground and in the air ===
+  for (var gc = zoneStart; gc < zoneEnd; gc++) {
+    if (rng() < 0.07 && rows[9][gc] === ' ' && rows[10][gc] === '#') {
+      rows[9][gc] = 'o'
+    }
+  }
+  var coinCursor = zoneStart + 2
+  while (coinCursor < zoneEnd - 2) {
+    if (rng() < 0.62) {
+      var coinN = 3 + ((rng() * 3) | 0)
+      for (var ci = 0; ci < coinN && coinCursor < zoneEnd; ci++) {
+        if (rows[8][coinCursor] === ' ' && rows[10][coinCursor] === '#') {
+          rows[8][coinCursor] = 'o'
+        }
+        coinCursor++
+      }
+    } else {
+      coinCursor += 4 + ((rng() * 5) | 0)
+    }
+  }
+
+  // === Lucky blocks: bump them from below to pop items or monsters ===
+  var luckyStep = 11 + ((rng() * 6) | 0)
+  var luckyPlaced = false
+  for (var lc = zoneStart + 2; lc < zoneEnd - 2; lc += luckyStep) {
+    if (rows[7][lc] === ' ' && rows[8][lc] === ' ') {
+      rows[7][lc] = 'I'
+      luckyPlaced = true
+    }
+  }
+  // Guarantee at least one lucky block per zone
+  if (!luckyPlaced) {
+    for (var lf = zoneStart + 2; lf < zoneEnd - 2; lf++) {
+      if (rows[7][lf] === ' ' && rows[8][lf] === ' ') {
+        rows[7][lf] = 'I'
+        break
+      }
+    }
+  }
+
+  // Get level name
+  var name = '第' + num + '关'
+  if (num <= LEVEL_NAMES.length) {
+    name = '第' + num + '关：' + LEVEL_NAMES[num - 1]
+  } else {
+    name = '第' + num + '关：隐藏关卡'
+  }
+
+  return { name: name, width: width, height: H, data: rows }
+}
+
+// Pre-generate all 100 levels
+var ALL_LEVELS = []
+for (var _li = 1; _li <= TOTAL_LEVELS; _li++) {
+  ALL_LEVELS.push(makeLevelData(_li))
+}
+
+// ===== Skins shop =====
+var SKINS = [
+  { key: 'default', name: '经典白猫', price: 0,   img: '/common/images/cat_player.png' },
+  { key: 'gold',    name: '黄金猫',   price: 30,  img: '/common/images/cat_player_gold.png' },
+  { key: 'blue',    name: '冰蓝猫',   price: 50,  img: '/common/images/cat_player_blue.png' },
+  { key: 'pink',    name: '樱花猫',   price: 80,  img: '/common/images/cat_player_pink.png' },
+  { key: 'mint',    name: '初音猫',   price: 300, img: '/common/images/cat_player_miku.png', hitInset: 6 }
+]
+
+var ITEM_IMG = {
+  mushroom: '/common/images/tile_mushroom.png',
+  coin:     '/common/images/tile_coin.png',
+  shoe:     '/common/images/tile_shoe.png',
+  shield:   '/common/images/tile_shield.png'
+}
+
+// ===== Shop items (consumables, applied at the start of the next level) =====
+var SHOP_ITEMS = [
+  { key: 'shield', name: '护盾',   price: 20, img: '/common/images/tile_shield.png' },
+  { key: 'shoe',   name: '加速鞋', price: 20, img: '/common/images/tile_shoe.png' },
+  { key: 'big',    name: '大蘑菇', price: 20, img: '/common/images/tile_mushroom.png' }
+]
+
+export default {
+  private: {
+    gameState: 'menu',
+    visibleTiles: [],
+    dynamicTiles: [],
+    visibleEnemies: [],
+    visibleItems: [],
+    playerStyle: '',
+    playerImg: '/common/images/cat_player.png',
+    playerInnerClass: 'player-inner-sm',
+    worldLeft: 0,
+    worldW: 966,
+    worldH: 299,
+    hudLevel: 1,
+    hudDeaths: 0,
+    hudCoins: 0,
+    hudShield: false,
+    coins: 0,
+    shopList: [],
+    shopItems: [],
+    saveListDisplay: [],
+    _player: null,
+    _camera: null,
+    _levelData: null,
+    _levelWidth: 0,
+    _levelHeight: 0,
+    _currentLevel: 1,
+    _deaths: 0,
+    _checkpoint: null,
+    _enemies: [],
+    _items: [],
+    _dynTiles: null,
+    _fallingList: [],
+    _inputLeft: false,
+    _inputRight: false,
+    _inputJump: false,
+    _gameTimer: null,
+    _lastCamX: -999999,
+    _saveSlot: 0,
+    _lastPlayerX: -999,
+    _lastPlayerY: -999,
+    _lastPlayerFacing: 0,
+    _lastPlayerBig: false,
+    _frameCount: 0,
+    _storage: null,
+    _hasStorage: false,
+    _saveCache: '[]',
+    _coinCache: '0',
+    _shopCache: '',
+    _shopData: null,
+    _storageLoaded: false,
+    _deleteSlot: 0,
+    _playerBig: false,
+    _speedFrames: 0,
+    _invincibleFrames: 0,
+    _hitInsetL: 0,
+    _shield: false,
+    _lastSafeX: 0,
+    _lastSafeY: 0,
+    _itemSeq: 0,
+    hudTop: 18,
+    gameTop: 55,
+    gameH: 299,
+    worldTop: 0,
+    saveListH: 280,
+    shopListH: 300,
+    overlayY: 113,
+    ctrlLeftY: 362,
+    ctrlJumpY: 365
+  },
+
+  // ===== Lifecycle =====
+  onInit() {
+    this.initStorage()
+  },
+
+  onReady() {
+    if (!this._hasStorage) {
+      this.initStorage()
+    }
+    // Ensure cache is loaded
+    if (!this._storageLoaded) {
+      this.preloadSaveCache()
+    }
+    // Detect screen dimensions for multi-device adaptation
+    this.detectScreen()
+  },
+
+  // ===== Multi-device screen detection =====
+  detectScreen() {
+    var self = this
+    try {
+      var device = require('@system.device')
+      device.getInfo({
+        success: function(ret) {
+          var sw = ret.screenWidth || 466
+          var sh = ret.screenHeight || 466
+          if (sw <= 0) sw = 466
+          if (sh <= 0) sh = 466
+          // designWidth=466 → the design space is always 466 wide,
+          // the height simply grows on taller devices.
+          var scale = sw / 466
+          var H = Math.ceil(sh / scale)
+          self.applyLayout(H)
+        },
+        fail: function() {
+          self.applyLayout(466)
+        }
+      })
+    } catch (e) {
+      this.applyLayout(466)
+    }
+  },
+
+  // Fits the play field + controls to the real screen height.
+  // Square (466), Band Pro (336x480 → 666 design) and Redmi 5/6 (432x514 → 554)
+  // all share the same 466-wide design space, so only the vertical rhythm changes.
+  applyLayout(H) {
+    if (!H || H < 400) H = 466
+    var hudH = 40
+    var ctrlH = 100
+    var gameH = H - hudH - ctrlH
+    if (gameH < 299) gameH = 299
+    if (gameH > 380) gameH = 380
+    var total = hudH + gameH + ctrlH
+    var startY = (H - total) >> 1
+    if (startY < 0) startY = 0
+
+    this.hudTop = startY + 6
+    this.gameTop = startY + hudH
+    this.gameH = gameH
+    // Ground stays at the bottom of the play field — extra height becomes sky
+    this.worldTop = gameH > 299 ? gameH - 299 : 0
+
+    this.ctrlLeftY = this.gameTop + gameH + 10
+    this.ctrlJumpY = this.ctrlLeftY + 3
+
+    this.saveListH = H - 200
+    if (this.saveListH < 200) this.saveListH = 200
+
+    this.shopListH = H - 190
+    if (this.shopListH < 220) this.shopListH = 220
+
+    // Overlay panel (~240px tall) vertically centered on the real screen
+    this.overlayY = (H - 240) >> 1
+    if (this.overlayY < 8) this.overlayY = 8
+  },
+
+  onBackPress() {
+    try {
+      this.stopGameLoop()
+      if (this.gameState !== 'menu') {
+        this.gameState = 'menu'
+        return true
+      }
+      return false
+    } catch (e) {
+      return false
+    }
+  },
+
+  // ===== Storage (FIXED: async-safe with in-memory cache) =====
+  initStorage() {
+    try {
+      this._storage = require('@system.storage')
+      this._hasStorage = true
+    } catch (e) {
+      this._storage = null
+      this._hasStorage = false
+    }
+    this._saveCache = '[]'
+    this._coinCache = '0'
+    this._shopCache = ''
+    this._shopData = null
+    this.preloadSaveCache()
+  },
+
+  // Pre-load saves / coins / shop data into memory cache on app start
+  preloadSaveCache() {
+    this._storageLoaded = true
+    if (!this._storage) {
+      this._saveCache = '[]'
+      this._coinCache = '0'
+      this._shopCache = ''
+      this.applyCoins()
+      this.applyShopData()
+      return
+    }
+    var self = this
+    try {
+      this._storage.get({
+        key: 'catmario_saves',
+        default: '[]',
+        success: function(data) {
+          self._saveCache = (data && typeof data === 'string') ? data : '[]'
+        },
+        fail: function() { self._saveCache = '[]' }
+      })
+      this._storage.get({
+        key: 'catmario_coins',
+        default: '0',
+        success: function(data) {
+          self._coinCache = (data !== undefined && data !== null) ? String(data) : '0'
+          self.applyCoins()
+        },
+        fail: function() { self._coinCache = '0'; self.applyCoins() }
+      })
+      this._storage.get({
+        key: 'catmario_shop',
+        default: '',
+        success: function(data) {
+          self._shopCache = (data && typeof data === 'string') ? data : ''
+          self.applyShopData()
+        },
+        fail: function() { self._shopCache = ''; self.applyShopData() }
+      })
+    } catch (e) {}
+  },
+
+  applyCoins() {
+    var n = parseInt(this._coinCache, 10)
+    if (isNaN(n) || n < 0) n = 0
+    this.coins = n
+    this.hudCoins = n
+  },
+
+  applyShopData() {
+    var data = null
+    if (this._shopCache) {
+      try { data = JSON.parse(this._shopCache) } catch (e) { data = null }
+    }
+    if (!data || typeof data !== 'object') data = { owned: ['default'], current: 'default' }
+    if (!Array.isArray(data.owned)) data.owned = ['default']
+    if (data.owned.indexOf('default') < 0) data.owned.push('default')
+    if (!data.current) data.current = 'default'
+    var found = false
+    for (var i = 0; i < SKINS.length; i++) {
+      if (SKINS[i].key === data.current) { found = true; break }
+    }
+    if (!found) data.current = 'default'
+    if (!data.items || typeof data.items !== 'object') data.items = {}
+    if (typeof data.items.shield !== 'number') data.items.shield = 0
+    if (typeof data.items.shoe !== 'number') data.items.shoe = 0
+    if (typeof data.items.big !== 'number') data.items.big = 0
+    this._shopData = data
+    this.applySkin()
+  },
+
+  applySkin() {
+    var data = this._shopData || { owned: ['default'], current: 'default' }
+    var skin = SKINS[0]
+    for (var i = 0; i < SKINS.length; i++) {
+      if (SKINS[i].key === data.current) { skin = SKINS[i]; break }
+    }
+    this.playerImg = skin.img
+    // Trailing hair is cosmetic: it must not widen the collision box
+    this._hitInsetL = skin.hitInset || 0
+  },
+
+  // Synchronous read from cache (always works, no race conditions)
+  storageGetSync(key) {
+    if (key === 'catmario_saves') return this._saveCache || '[]'
+    if (key === 'catmario_coins') return this._coinCache || '0'
+    if (key === 'catmario_shop') return this._shopCache || ''
+    return ''
+  },
+
+  // Write to cache + async storage (fire-and-forget)
+  storageSetSync(key, value) {
+    if (key === 'catmario_saves') this._saveCache = value
+    else if (key === 'catmario_coins') this._coinCache = value
+    else if (key === 'catmario_shop') this._shopCache = value
+    if (!this._storage) return
+    try {
+      this._storage.set({
+        key: key,
+        value: value,
+        success: function() {},
+        fail: function() {}
+      })
+    } catch (e) {}
+  },
+
+  // Persist coin balance
+  saveCoins() {
+    this.storageSetSync('catmario_coins', String(this.coins))
+  },
+
+  addCoins(n) {
+    this.coins = (this.coins | 0) + n
+    if (this.coins < 0) this.coins = 0
+    this.hudCoins = this.coins
+    // NOTE: persist only at checkpoints / level clear / shop actions,
+    // so picking up a coin never triggers storage I/O mid-game.
+  },
+
+  // ===== Screen Navigation =====
+  startNewGame() {
+    this.resetRunItems()
+    // Auto-load the latest save if one exists
+    var savesStr = this.storageGetSync('catmario_saves')
+    var saves = []
+    try { saves = JSON.parse(savesStr) } catch (e) { saves = [] }
+    if (!Array.isArray(saves)) saves = []
+
+    if (saves.length > 0) {
+      // Find the latest save by timestamp
+      var latest = saves[0]
+      for (var i = 1; i < saves.length; i++) {
+        if (saves[i] && (saves[i].timestamp || 0) > (latest.timestamp || 0)) {
+          latest = saves[i]
+        }
+      }
+      this._currentLevel = latest.level || 1
+      this._deaths = latest.deaths || 0
+      this._saveSlot = latest.slot || Date.now()
+      if (latest.checkpointX && latest.checkpointX > 0) {
+        this._checkpoint = { x: latest.checkpointX, y: latest.checkpointY }
+      } else {
+        this._checkpoint = null
+      }
+      this.loadLevel(this._currentLevel, true)
+      if (this._checkpoint && this._checkpoint.x > 0) {
+        this._player.x = this._checkpoint.x
+        this._player.y = this._checkpoint.y
+      }
+    } else {
+      // No save — start fresh from level 1
+      this._currentLevel = 1
+      this._deaths = 0
+      this._saveSlot = Date.now()
+      this._checkpoint = null
+      this.loadLevel(1, true)
+    }
+    this.gameState = 'playing'
+    this.startGameLoop()
+  },
+
+  showSaves() {
+    this.loadSaveList()
+    this.gameState = 'saves'
+  },
+
+  showAbout() {
+    this.gameState = 'about'
+  },
+
+  showShop() {
+    if (!this._shopData) this.applyShopData()
+    this.buildShopList()
+    this.buildShopItems()
+    this.gameState = 'shop'
+  },
+
+  resetRunItems() {
+    this._playerBig = false
+    this._speedFrames = 0
+    this._invincibleFrames = 0
+    this._shield = false
+    this.hudShield = false
+    this.playerInnerClass = 'player-inner-sm'
+  },
+
+  buildShopList() {
+    var data = this._shopData || { owned: ['default'], current: 'default' }
+    var list = []
+    for (var i = 0; i < SKINS.length; i++) {
+      var s = SKINS[i]
+      var owned = data.owned.indexOf(s.key) >= 0
+      var status = ''
+      if (data.current === s.key) status = '使用中'
+      else if (owned) status = '点击使用'
+      else status = s.price + ' 金币'
+      list.push({
+        id: s.key,
+        idx: i,
+        name: s.name,
+        img: s.img,
+        uid: s.key + '_v2',
+        status: status
+      })
+    }
+    this.shopList = list
+  },
+
+  buyOrEquip(idx) {
+    var skin = SKINS[idx]
+    if (!skin) return
+    var data = this._shopData || { owned: ['default'], current: 'default' }
+    var owned = data.owned.indexOf(skin.key) >= 0
+    if (!owned) {
+      if (this.coins < skin.price) {
+        this.buildShopList()
+        return
+      }
+      this.addCoins(-skin.price)
+      data.owned.push(skin.key)
+    }
+    data.current = skin.key
+    this._shopData = data
+    this.storageSetSync('catmario_shop', JSON.stringify(data))
+    this.saveCoins()
+    this.applySkin()
+    this.buildShopList()
+  },
+
+  buildShopItems() {
+    var data = this._shopData
+    if (!data) { this.shopItems = []; return }
+    if (!data.items) data.items = {}
+    var list = []
+    for (var i = 0; i < SHOP_ITEMS.length; i++) {
+      var s = SHOP_ITEMS[i]
+      var have = data.items[s.key] || 0
+      var status = s.price + ' 金币'
+      if (have > 0) status = '已持有 ' + have + ' 个 · ' + s.price + ' 金币'
+      list.push({
+        id: 'item_' + s.key,
+        idx: i,
+        name: s.name,
+        img: s.img,
+        status: status
+      })
+    }
+    this.shopItems = list
+  },
+
+  buyItem(idx) {
+    var item = SHOP_ITEMS[idx]
+    if (!item) return
+    if (!this._shopData) this.applyShopData()
+    var data = this._shopData
+    if (this.coins < item.price) return
+    if (!data.items) data.items = {}
+    data.items[item.key] = (data.items[item.key] || 0) + 1
+    this.addCoins(-item.price)
+    this.storageSetSync('catmario_shop', JSON.stringify(data))
+    this.saveCoins()
+    this.buildShopItems()
+  },
+
+  // Apply purchased items when a new level starts (not on retry)
+  consumeBuffs() {
+    if (!this._shopData) this.applyShopData()
+    var data = this._shopData
+    if (!data || !data.items) return
+    var changed = false
+    if ((data.items.shield | 0) > 0) {
+      data.items.shield = (data.items.shield | 0) - 1
+      this._shield = true
+      this.hudShield = true
+      changed = true
+    }
+    if ((data.items.shoe | 0) > 0) {
+      data.items.shoe = (data.items.shoe | 0) - 1
+      this._speedFrames = SPEED_FRAMES
+      changed = true
+    }
+    if ((data.items.big | 0) > 0) {
+      data.items.big = (data.items.big | 0) - 1
+      this.growPlayer()
+      changed = true
+    }
+    if (changed) this.storageSetSync('catmario_shop', JSON.stringify(data))
+  },
+
+  backToMenu() {
+    this.stopGameLoop()
+    this.gameState = 'menu'
+  },
+
+  // ===== Save System (FIXED: reliable with in-memory cache) =====
+  loadSaveList() {
+    // Read synchronously from cache — always works
+    var savesStr = this.storageGetSync('catmario_saves')
+    var saves = []
+    try { saves = JSON.parse(savesStr) } catch (e) { saves = [] }
+    if (!Array.isArray(saves)) saves = []
+
+    var display = []
+    for (var i = 0; i < saves.length; i++) {
+      var s = saves[i]
+      if (!s) continue
+      var d = new Date(s.timestamp || 0)
+      var timeStr = (d.getMonth() + 1) + '/' + d.getDate()
+      display.push({
+        slot: s.slot || i,
+        name: s.levelName || ('存档 ' + (i + 1)),
+        deaths: s.deaths || 0,
+        timeStr: timeStr,
+        level: s.level || 1,
+        checkpointX: s.checkpointX || 0,
+        checkpointY: s.checkpointY || 0
+      })
+    }
+    this.saveListDisplay = display
+  },
+
+  loadSave(slot) {
+    // Read synchronously from cache
+    var savesStr = this.storageGetSync('catmario_saves')
+    var saves = []
+    try { saves = JSON.parse(savesStr) } catch (e) { saves = [] }
+
+    var found = null
+    for (var i = 0; i < saves.length; i++) {
+      if (saves[i] && saves[i].slot === slot) { found = saves[i]; break }
+    }
+    if (!found) return
+
+    this._currentLevel = found.level || 1
+    this._deaths = found.deaths || 0
+    this._saveSlot = found.slot || Date.now()
+    this._checkpoint = { x: found.checkpointX, y: found.checkpointY }
+
+    this.resetRunItems()
+    this.loadLevel(this._currentLevel)
+    if (this._checkpoint && this._checkpoint.x > 0) {
+      this._player.x = this._checkpoint.x
+      this._player.y = this._checkpoint.y
+    }
+    this.gameState = 'playing'
+    this.startGameLoop()
+  },
+
+  // Save progress — called at checkpoints AND level completion
+  // optLevel: optional level override (for next-level spawn point after completion)
+  // optCheckpoint: optional checkpoint override (null = start of level)
+  saveProgress(optLevel, optCheckpoint) {
+    var saveLevel = optLevel !== undefined ? optLevel : this._currentLevel
+    if (saveLevel < 1) return
+
+    // Read from cache (synchronous, reliable)
+    var savesStr = this.storageGetSync('catmario_saves')
+    var saves = []
+    try { saves = JSON.parse(savesStr) } catch (e) { saves = [] }
+    if (!Array.isArray(saves)) saves = []
+
+    var levelName = '存档'
+    var idx = saveLevel - 1
+    if (idx >= 0 && idx < ALL_LEVELS.length) {
+      levelName = ALL_LEVELS[idx].name
+    }
+
+    var cpX = 0
+    var cpY = 0
+    var cp = optCheckpoint !== undefined ? optCheckpoint : this._checkpoint
+    if (cp) {
+      cpX = cp.x
+      cpY = cp.y
+    }
+
+    var saveData = {
+      slot: this._saveSlot,
+      level: saveLevel,
+      levelName: levelName,
+      deaths: this._deaths,
+      checkpointX: cpX,
+      checkpointY: cpY,
+      timestamp: Date.now()
+    }
+
+    // Update or insert
+    var found = false
+    for (var i = 0; i < saves.length; i++) {
+      if (saves[i] && saves[i].slot === this._saveSlot) {
+        saves[i] = saveData
+        found = true
+        break
+      }
+    }
+    if (!found) saves.push(saveData)
+
+    // Sort by timestamp descending (newest first)
+    saves.sort(function(a, b) {
+      return (b.timestamp || 0) - (a.timestamp || 0)
+    })
+    // Keep last 10 saves (rotation: oldest gets overwritten)
+    if (saves.length > 10) saves = saves.slice(0, 10)
+
+    // Write to cache + async storage
+    this.storageSetSync('catmario_saves', JSON.stringify(saves))
+    this.saveCoins()
+  },
+
+  confirmClearAll() {
+    this.storageSetSync('catmario_saves', '[]')
+    this.saveListDisplay = []
+  },
+
+  // Long-press a save to delete it
+  onSaveLongPress(slot) {
+    this._deleteSlot = slot
+    this.gameState = 'confirmdelete'
+  },
+
+  confirmDeleteSave() {
+    var slot = this._deleteSlot
+    var savesStr = this.storageGetSync('catmario_saves')
+    var saves = []
+    try { saves = JSON.parse(savesStr) } catch (e) { saves = [] }
+    if (!Array.isArray(saves)) saves = []
+
+    var newSaves = []
+    for (var i = 0; i < saves.length; i++) {
+      if (saves[i] && saves[i].slot !== slot) {
+        newSaves.push(saves[i])
+      }
+    }
+    this.storageSetSync('catmario_saves', JSON.stringify(newSaves))
+    this._deleteSlot = 0
+    this.loadSaveList()
+    this.gameState = 'saves'
+  },
+
+  cancelDeleteSave() {
+    this._deleteSlot = 0
+    this.gameState = 'saves'
+  },
+
+  // ===== Game =====
+  loadLevel(levelNum, useBuffs) {
+    var idx = levelNum - 1
+    if (idx < 0 || idx >= ALL_LEVELS.length) { idx = 0; levelNum = 1 }
+
+    var level = ALL_LEVELS[idx]
+    this._levelData = level.data
+    this._levelWidth = level.width
+    this._levelHeight = level.data.length
+    this._currentLevel = levelNum
+    this.hudLevel = levelNum
+    this.hudDeaths = this._deaths
+
+    // 2D numeric dynamic tile map
+    this._dynTiles = []
+    this._fallingList = []
+    for (var r = 0; r < this._levelHeight; r++) {
+      var row = []
+      for (var c = 0; c < this._levelWidth; c++) row.push(0)
+      this._dynTiles.push(row)
+    }
+
+    this._lastPlayerX = -999
+    this._lastPlayerY = -999
+    this._lastPlayerFacing = 0
+    this._lastPlayerBig = false
+    this._lastCamX = -999999
+    this._frameCount = 0
+
+    // Per-level runtime state
+    this._playerBig = false
+    this._invincibleFrames = 0
+    // _speedFrames is NOT reset here: the speed boost carries over to the next level
+    this._items = []
+    this.visibleItems = []
+    this.hudShield = this._shield
+    this.playerInnerClass = 'player-inner-sm'
+
+    if (!this._checkpoint || this._checkpoint.x === 0) {
+      var startX = TILE
+      var startY = 0
+      for (var r2 = 0; r2 < this._levelHeight; r2++) {
+        if (this._levelData[r2][0] === '#' || this._levelData[r2][0] === '=') {
+          startY = (r2 - 1) * TILE; break
+        }
+      }
+      if (startY < 0) startY = 0
+      this._checkpoint = { x: startX, y: startY }
+    }
+
+    this._player = {
+      x: this._checkpoint.x,
+      y: this._checkpoint.y,
+      vx: 0, vy: 0,
+      w: PLAYER_W, h: PLAYER_H,
+      onGround: false, facing: 1, alive: true
+    }
+    this._lastSafeX = this._player.x
+    this._lastSafeY = this._player.y
+
+    // Purchased shop items take effect at the start of a new level
+    if (useBuffs) this.consumeBuffs()
+
+    // ===== Whole-level loading: render the ENTIRE map once =====
+    // Camera follows the player (player stays centered) and only the
+    // world-container's `left` offset changes while scrolling.
+    this._camera = { x: 0, y: 0 }
+    this.worldW = this._levelWidth * TILE
+    this.worldH = this._levelHeight * TILE
+
+    // Scan for enemies
+    this._enemies = []
+    for (var r3 = 0; r3 < this._levelHeight; r3++) {
+      for (var c2 = 0; c2 < this._levelWidth; c2++) {
+        if (this._levelData[r3][c2] === 'E') {
+          this._enemies.push({
+            id: 'e_' + r3 + '_' + c2,
+            x: c2 * TILE, y: r3 * TILE + (TILE - 20),
+            w: 20, h: 20, vx: 1, alive: true
+          })
+        }
+      }
+    }
+
+    // Build static tiles ONCE per level (whole map, world coordinates)
+    this.buildStaticTiles()
+    this.buildDynamicTiles()
+    this.updateCamera()
+    this.updatePlayerStyle()
+    this.updateVisibleEnemies()
+    this.updateVisibleItems()
+  },
+
+  startGameLoop() {
+    this.stopGameLoop()
+    var self = this
+    this._gameTimer = setInterval(function() { self.update() }, GAME_LOOP_MS)
+  },
+
+  stopGameLoop() {
+    if (this._gameTimer) {
+      clearInterval(this._gameTimer)
+      this._gameTimer = null
+    }
+  },
+
+  // ===== Main Update =====
+  update() {
+    if (this.gameState !== 'playing') return
+    var p = this._player
+    if (!p || !p.alive) return
+
+    this._frameCount++
+    if (this._speedFrames > 0) this._speedFrames--
+    if (this._invincibleFrames > 0) this._invincibleFrames--
+
+    // --- Physics ---
+    var spd = MOVE_SPEED
+    if (this._speedFrames > 0) spd = MOVE_SPEED * SPEED_MULT
+    if (this._inputLeft) { p.vx = -spd; p.facing = -1 }
+    else if (this._inputRight) { p.vx = spd; p.facing = 1 }
+    else { p.vx = 0 }
+
+    if (this._inputJump && p.onGround) {
+      p.vy = JUMP_FORCE
+      p.onGround = false
+    }
+
+    p.vy += GRAVITY
+    if (p.vy > MAX_FALL) p.vy = MAX_FALL
+
+    // Horizontal collision
+    p.x += p.vx
+    this.resolveHorizontal(p)
+
+    // Vertical collision
+    p.y += p.vy
+    p.onGround = false
+    this.resolveVertical(p)
+
+    // Remember the last safe standing spot (used by the shield rescue)
+    if (p.onGround) {
+      var scx = (p.x + (p.w >> 1)) / TILE | 0
+      var scy = (p.y + p.h + 1) / TILE | 0
+      var st = this.getTile(scx, scy)
+      if (st === '#' || st === '=' || st === 'P' || st === 'C') {
+        this._lastSafeX = p.x
+        this._lastSafeY = p.y
+      }
+    }
+
+    // Spring bounce
+    if (!p.onGround && p.vy > 0) {
+      var cx = (p.x + (p.w >> 1)) / TILE | 0
+      var cy = (p.y + p.h) / TILE | 0
+      if (this.getTile(cx, cy) === 'S') {
+        p.vy = JUMP_FORCE * 1.4
+      }
+    }
+
+    // Fall death
+    if (p.y > this._levelHeight * TILE + 50) {
+      this.killPlayer()
+      return
+    }
+
+    // Enemy collision
+    var pbx = p.x + (this._hitInsetL || 0)
+    for (var i = 0; i < this._enemies.length; i++) {
+      var e = this._enemies[i]
+      if (!e.alive) continue
+      if (this._invincibleFrames > 0) continue
+      if (pbx < e.x + e.w && p.x + p.w > e.x && p.y < e.y + e.h && p.y + p.h > e.y) {
+        if (p.vy > 0 && p.y + p.h - e.y < 12) {
+          e.alive = false
+          p.vy = JUMP_FORCE * 0.6
+        } else if (this._playerBig) {
+          // Being bitten only costs the mushroom growth — not a life
+          this.shrinkPlayer()
+        } else {
+          this.killPlayer()
+          return
+        }
+      }
+    }
+
+    // Mushroom pickup — makes the player bigger
+    var pcx = (p.x + (p.w >> 1)) / TILE | 0
+    var pcy = (p.y + (p.h >> 1)) / TILE | 0
+    if (this.getTile(pcx, pcy) === 'M' && this._dynTiles[pcy][pcx] !== 5) {
+      this._dynTiles[pcy][pcx] = 5
+      this.refreshDynamicTiles()
+      this.growPlayer()
+    }
+
+    // Items popped from lucky blocks (shoe / shield / mushroom / coin)
+    this.updateItems(p)
+
+    // Falling platforms
+    var fallingChanged = false
+    for (var fi = 0; fi < this._fallingList.length; fi++) {
+      var ft = this._fallingList[fi]
+      if (this._dynTiles[ft[1]][ft[0]] === 2) {
+        ft[2]--
+        if (ft[2] <= 0) {
+          this._dynTiles[ft[1]][ft[0]] = 3
+          fallingChanged = true
+        }
+      }
+    }
+    if (fallingChanged) this.refreshDynamicTiles()
+
+    // Trap check (includes checkpoint auto-save)
+    this.checkTraps(p)
+
+    // Win check (includes level complete auto-save)
+    this.checkWin(p)
+
+    // --- Camera follows the player (player stays centered) ---
+    this.updateCamera()
+
+    this.updatePlayerStyle()
+
+    if ((this._frameCount & 3) === 0) {
+      this.updateVisibleEnemies()
+    }
+
+    // Enemy AI
+    for (var ei = 0; ei < this._enemies.length; ei++) {
+      var en = this._enemies[ei]
+      if (!en.alive) continue
+      en.x += en.vx
+      var ecol = (en.x + (en.vx > 0 ? en.w : 0)) / TILE | 0
+      var erowT = en.y / TILE | 0
+      var erowB = (en.y + en.h - 1) / TILE | 0
+      var blocked = false
+      for (var er = erowT; er <= erowB; er++) {
+        if (this.isSolid(ecol, er)) { blocked = true; break }
+      }
+      if (blocked) {
+        en.vx = -en.vx
+        if (en.vx > 0) en.x = (ecol + 1) * TILE
+        else en.x = ecol * TILE - en.w
+      }
+      var checkC = (en.x + (en.vx > 0 ? en.w + 2 : -2)) / TILE | 0
+      var groundR = (en.y + en.h + 2) / TILE | 0
+      if (!this.isSolid(checkC, groundR)) en.vx = -en.vx
+      if (en.x < 0) { en.x = 0; en.vx = 1 }
+      if (en.x > this._levelWidth * TILE - en.w) {
+        en.x = this._levelWidth * TILE - en.w; en.vx = -1
+      }
+    }
+  },
+
+  // ===== Collision =====
+  resolveHorizontal(p) {
+    var ins = this._hitInsetL || 0
+    var left = ((p.x + ins) / TILE) | 0
+    var right = ((p.x + p.w - 1) / TILE) | 0
+    var top = (p.y / TILE) | 0
+    var bottom = ((p.y + p.h - 1) / TILE) | 0
+
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        if (this.isSolid(c, r)) {
+          if (p.vx > 0) p.x = c * TILE - p.w
+          else if (p.vx < 0) p.x = (c + 1) * TILE - ins
+          p.vx = 0
+          return
+        }
+      }
+    }
+  },
+
+  resolveVertical(p) {
+    var ins = this._hitInsetL || 0
+    var left = ((p.x + ins) / TILE) | 0
+    var right = ((p.x + p.w - 1) / TILE) | 0
+    var top = (p.y / TILE) | 0
+    var bottom = ((p.y + p.h - 1) / TILE) | 0
+
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        if (this.isSolid(c, r)) {
+          if (p.vy > 0) {
+            p.y = r * TILE - p.h
+            p.onGround = true
+            if (this.getTile(c, r) === 'F') {
+              if (this._dynTiles[r][c] === 0) {
+                this._dynTiles[r][c] = 2
+                this._fallingList.push([c, r, 12])
+              }
+            }
+          } else if (p.vy < 0) {
+            p.y = (r + 1) * TILE
+            if (this.getTile(c, r) === 'I' && this._dynTiles[r][c] === 0) {
+              this.onLuckyBlock(c, r)
+            }
+          }
+          p.vy = 0
+          return
+        }
+      }
+    }
+  },
+
+  checkTraps(p) {
+    var left = ((p.x + (this._hitInsetL || 0)) / TILE) | 0
+    var right = ((p.x + p.w - 1) / TILE) | 0
+    var top = (p.y / TILE) | 0
+    var bottom = ((p.y + p.h - 1) / TILE) | 0
+
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        var ch = this.getTile(c, r)
+        if (ch === '^' || ch === 'v') {
+          if (ch === 'v' && this._dynTiles[r][c] === 0) {
+            this._dynTiles[r][c] = 4
+            this.refreshDynamicTiles()
+          }
+          this.killPlayer()
+          return
+        }
+        // Checkpoint — AUTO-SAVE when touched
+        if (ch === 'C' && this._dynTiles[r][c] === 0) {
+          this._dynTiles[r][c] = 6
+          this._checkpoint = { x: c * TILE, y: (r - 1) * TILE }
+          this.refreshDynamicTiles()
+          // AUTO-SAVE at checkpoint
+          this.saveProgress()
+        }
+        // Coin pickup
+        if (ch === 'o' && this._dynTiles[r][c] !== 7) {
+          this._dynTiles[r][c] = 7
+          this.addCoins(1)
+          this.refreshDynamicTiles()
+        }
+      }
+    }
+  },
+
+  checkWin(p) {
+    var cx = ((p.x + (p.w >> 1)) / TILE) | 0
+    var cy = ((p.y + (p.h >> 1)) / TILE) | 0
+    if (this.getTile(cx, cy) === 'G') {
+      this.stopGameLoop()
+      if (this._currentLevel >= ALL_LEVELS.length) {
+        // Final level complete — save final state
+        this.saveProgress()
+        this.gameState = 'gamecomplete'
+      } else {
+        // Save with NEXT level as spawn point (checkpoint=null = level start)
+        var nextLevel = this._currentLevel + 1
+        this.saveProgress(nextLevel, null)
+        this.gameState = 'levelcomplete'
+      }
+    }
+  },
+
+  killPlayer() {
+    if (!this._player) return
+    // Shield: immune to one death — teleport back to the last safe spot
+    if (this._shield) {
+      this._shield = false
+      this.hudShield = false
+      this.respawnAtSafe()
+      return
+    }
+    this._player.alive = false
+    this._deaths++
+    this.hudDeaths = this._deaths
+    this.stopGameLoop()
+    this.gameState = 'dead'
+  },
+
+  respawnAtSafe() {
+    var p = this._player
+    if (!p) return
+    p.alive = true
+    p.x = this._lastSafeX
+    p.y = this._lastSafeY
+    p.vx = 0
+    p.vy = 0
+    p.onGround = false
+    this._lastPlayerX = -999
+    this._lastCamX = -999999
+    this.updateCamera()
+    this.updatePlayerStyle()
+  },
+
+  growPlayer() {
+    var p = this._player
+    if (!p || this._playerBig) return
+    var oldW = p.w
+    var oldH = p.h
+    this._playerBig = true
+    p.w = BIG_W
+    p.h = BIG_H
+    p.x -= (BIG_W - oldW) >> 1
+    p.y -= (BIG_H - oldH)
+
+    if (this.overlapsSolid(p)) {
+      p.y += (BIG_H - oldH)
+      if (this.overlapsSolid(p)) {
+        // No room to grow — keep the small size
+        p.w = oldW
+        p.h = oldH
+        p.x += (BIG_W - oldW) >> 1
+        p.y -= (BIG_H - oldH)
+        this._playerBig = false
+        this.playerInnerClass = 'player-inner-sm'
+        this._lastPlayerX = -999
+        return
+      }
+    }
+    this.playerInnerClass = 'player-inner-lg'
+    this._lastPlayerX = -999
+    this.updatePlayerStyle()
+  },
+
+  // Bitten by a monster while grown up: lose the mushroom, keep playing
+  shrinkPlayer() {
+    var p = this._player
+    if (!p || !this._playerBig) return
+    p.y += (BIG_H - PLAYER_H)
+    p.x += (BIG_W - PLAYER_W) >> 1
+    p.w = PLAYER_W
+    p.h = PLAYER_H
+    this._playerBig = false
+    this.playerInnerClass = 'player-inner-sm'
+    this._invincibleFrames = 24
+    this._lastPlayerX = -999
+    this.updatePlayerStyle()
+  },
+
+  overlapsSolid(p) {
+    var left = ((p.x + (this._hitInsetL || 0)) / TILE) | 0
+    var right = ((p.x + p.w - 1) / TILE) | 0
+    var top = (p.y / TILE) | 0
+    var bottom = ((p.y + p.h - 1) / TILE) | 0
+    for (var r = top; r <= bottom; r++) {
+      for (var c = left; c <= right; c++) {
+        if (this.isSolid(c, r)) return true
+      }
+    }
+    return false
+  },
+
+  retry() {
+    // Dying clears the speed boost, mushroom growth and any leftover shield
+    this._speedFrames = 0
+    this._playerBig = false
+    this.loadLevel(this._currentLevel, false)
+    this.gameState = 'playing'
+    this.startGameLoop()
+  },
+
+  nextLevel() {
+    var next = this._currentLevel + 1
+    if (next > ALL_LEVELS.length) {
+      this.gameState = 'gamecomplete'
+      return
+    }
+    this._checkpoint = null
+    this.loadLevel(next, true)
+    this.gameState = 'playing'
+    this.startGameLoop()
+  },
+
+  // ===== Camera: follows the player, keeps him centered =====
+  updateCamera() {
+    var p = this._player
+    if (!p) return
+    var target = p.x + (p.w >> 1) - (SCREEN_W >> 1)
+    var maxCam = this._levelWidth * TILE - SCREEN_W
+    if (maxCam < 0) maxCam = 0
+    if (target < 0) target = 0
+    if (target > maxCam) target = maxCam
+    target = target | 0
+    if (target === this._lastCamX) return
+    this._lastCamX = target
+    this._camera.x = target
+    // Only ONE style value changes while scrolling
+    this.worldLeft = target > 0 ? -target : 0
+  },
+
+  // ===== Rendering =====
+
+  // Static layer: built ONCE per level, never rebuilt while playing.
+  buildStaticTiles() {
+    if (!this._levelData) return
+    var tiles = []
+    var lvData = this._levelData
+    var lvW = this._levelWidth
+    var lvH = this._levelHeight
+
+    for (var r = 0; r < lvH; r++) {
+      var rowData = lvData[r]
+      for (var c = 0; c < lvW; c++) {
+        var ch = rowData[c]
+        if (ch === ' ' || ch === 'E') continue
+        // Dynamic tiles are handled by buildDynamicTiles()
+        if (ch === 'M' || ch === 'I' || ch === 'C' || ch === 'v' || ch === 'F' || ch === 'o') continue
+
+        var imgKey = ch
+        if (ch === '#') {
+          if (r > 0) {
+            var above = lvData[r - 1][c]
+            if (above === ' ' || above === 'E' || above === 'S' ||
+                above === 'M' || above === 'G' || above === 'C') {
+              imgKey = '#t'
+            }
+          } else {
+            imgKey = '#t'
+          }
+        }
+
+        tiles.push({
+          id: 's_' + c + '_' + r,
+          image: TILE_IMG[imgKey] || TILE_IMG['#'],
+          style: 'left:' + (c * TILE) + 'px;top:' + (r * TILE) + 'px;'
+        })
+      }
+    }
+    this.visibleTiles = tiles
+  },
+
+  // Dynamic layer: small list, rebuilt only when a state changes
+  buildDynamicTiles() {
+    if (!this._levelData) return
+    var tiles = []
+    var lvData = this._levelData
+    var lvW = this._levelWidth
+    var lvH = this._levelHeight
+    var dyn = this._dynTiles
+
+    for (var r = 0; r < lvH; r++) {
+      var rowData = lvData[r]
+      var dynRow = dyn ? dyn[r] : null
+      for (var c = 0; c < lvW; c++) {
+        var ch = rowData[c]
+        if (ch !== 'M' && ch !== 'I' && ch !== 'C' && ch !== 'v' && ch !== 'F' && ch !== 'o') continue
+
+        var d = dynRow ? dynRow[c] : 0
+        if (ch === 'M' && d === 5) continue
+        if (ch === 'v' && d !== 4) continue
+        if (ch === 'F' && d === 3) continue
+        if (ch === 'o' && d === 7) continue
+
+        var imgKey = ch
+        if (ch === 'v') imgKey = '^'
+        if (ch === 'I' && d === 1) imgKey = '#t'
+
+        // Coins are drawn one size smaller than a full tile
+        if (ch === 'o') {
+          tiles.push({
+            id: 'd_' + c + '_' + r,
+            image: TILE_IMG[imgKey],
+            style: 'left:' + (c * TILE + 4) + 'px;top:' + (r * TILE + 4) + 'px;width:15px;height:15px;',
+            imgStyle: 'width:15px;height:15px;'
+          })
+          continue
+        }
+
+        tiles.push({
+          id: 'd_' + c + '_' + r,
+          image: TILE_IMG[imgKey] || TILE_IMG['#'],
+          style: 'left:' + (c * TILE) + 'px;top:' + (r * TILE) + 'px;'
+        })
+      }
+    }
+    this.dynamicTiles = tiles
+  },
+
+  refreshDynamicTiles() {
+    this.buildDynamicTiles()
+  },
+
+  // Player: world coordinates (the camera keeps it centered on screen)
+  updatePlayerStyle() {
+    var p = this._player
+    if (!p) return
+
+    var wx = p.x | 0
+    var wy = p.y | 0
+    var big = this._playerBig ? 1 : 0
+
+    if (wx === this._lastPlayerX && wy === this._lastPlayerY &&
+        p.facing === this._lastPlayerFacing && big === this._lastPlayerBig) return
+
+    this._lastPlayerX = wx
+    this._lastPlayerY = wy
+    this._lastPlayerFacing = p.facing
+    this._lastPlayerBig = big
+
+    this.playerStyle = 'left:' + wx + 'px;top:' + wy + 'px;width:' + p.w + 'px;height:' + p.h + 'px;'
+  },
+
+  // Items popped from lucky blocks
+  updateVisibleItems() {
+    var list = []
+    for (var i = 0; i < this._items.length; i++) {
+      var it = this._items[i]
+      if (!it.alive) continue
+      list.push({
+        id: it.id,
+        image: ITEM_IMG[it.type],
+        style: 'left:' + (it.x | 0) + 'px;top:' + (it.y | 0) + 'px;'
+      })
+    }
+    this.visibleItems = list
+  },
+
+  updateItems(p) {
+    if (!this._items.length) return
+    var changed = false
+    for (var i = 0; i < this._items.length; i++) {
+      var it = this._items[i]
+      if (!it.alive) continue
+      changed = true
+
+      it.vy += GRAVITY
+      if (it.vy > MAX_FALL) it.vy = MAX_FALL
+      it.y += it.vy
+
+      if (it.vy > 0) {
+        var cc = ((it.x + (it.w >> 1)) / TILE) | 0
+        var botRow = ((it.y + it.h) / TILE) | 0
+        if (this.isSolid(cc, botRow)) {
+          it.y = botRow * TILE - it.h
+          if (it.y < 0) it.y = 0
+          it.vy = 0
+        }
+      }
+
+      if (it.y > this._levelHeight * TILE) {
+        it.alive = false
+        continue
+      }
+
+      // AABB pickup
+      if (p.x + (this._hitInsetL || 0) < it.x + it.w && p.x + p.w > it.x &&
+          p.y < it.y + it.h && p.y + p.h > it.y) {
+        it.alive = false
+        this.collectItem(it.type)
+      }
+    }
+    if (changed) this.updateVisibleItems()
+  },
+
+  collectItem(type) {
+    if (type === 'mushroom') {
+      this.growPlayer()
+    } else if (type === 'coin') {
+      this.addCoins(1)
+    } else if (type === 'shoe') {
+      this._speedFrames = SPEED_FRAMES
+    } else if (type === 'shield') {
+      this._shield = true
+      this.hudShield = true
+    }
+  },
+
+  spawnItem(c, r, type) {
+    this._itemSeq++
+    this._items.push({
+      id: 'it_' + this._itemSeq,
+      type: type,
+      x: c * TILE + 2,
+      y: (r - 1) * TILE + TILE - 20,
+      w: 20,
+      h: 20,
+      vy: -5,
+      alive: true
+    })
+    this.updateVisibleItems()
+  },
+
+  spawnMonster(c, r) {
+    this._itemSeq++
+    this._enemies.push({
+      id: 'em_' + this._itemSeq,
+      x: c * TILE + 1,
+      y: (r - 1) * TILE + (TILE - 20),
+      w: 20,
+      h: 20,
+      vx: 1,
+      alive: true
+    })
+    this.updateVisibleEnemies()
+  },
+
+  // Lucky block: chance to pop a monster, otherwise an item
+  onLuckyBlock(c, r) {
+    this._dynTiles[r][c] = 1
+    this.refreshDynamicTiles()
+
+    if (Math.random() < 0.28) {
+      this.spawnMonster(c, r)
+      return
+    }
+    var roll = Math.random()
+    var type
+    if (roll < 0.30) type = 'mushroom'
+    else if (roll < 0.55) type = 'coin'
+    else if (roll < 0.80) type = 'shoe'
+    else type = 'shield'
+    this.spawnItem(c, r, type)
+  },
+
+  // Enemies: world coordinates, they scroll together with the map
+  updateVisibleEnemies() {
+    var enemies = []
+    for (var i = 0; i < this._enemies.length; i++) {
+      var e = this._enemies[i]
+      if (!e.alive) continue
+      enemies.push({
+        id: e.id,
+        style: 'left:' + (e.x | 0) + 'px;top:' + (e.y | 0) + 'px;'
+      })
+    }
+    this.visibleEnemies = enemies
+  },
+
+  // ===== Input =====
+  onLeftStart() { this._inputLeft = true; this._inputRight = false },
+  onLeftMove() { this._inputLeft = true },
+  onLeftEnd() { this._inputLeft = false },
+  onRightStart() { this._inputRight = true; this._inputLeft = false },
+  onRightMove() { this._inputRight = true },
+  onRightEnd() { this._inputRight = false },
+  onJumpStart() { this._inputJump = true },
+  onJumpEnd() { this._inputJump = false },
+
+  // ===== Helpers =====
+  getTile(col, row) {
+    if (row < 0 || row >= this._levelHeight) return ' '
+    var rowData = this._levelData[row]
+    if (col < 0 || col >= rowData.length) return ' '
+    return rowData[col]
+  },
+
+  isSolid(col, row) {
+    if (row < 0 || row >= this._levelHeight) return false
+    if (col < 0 || col >= this._levelWidth) return false
+    var ch = this._levelData[row][col]
+    if (SOLID[ch]) return true
+    if (ch === 'I') return true
+    if (ch === 'F') return this._dynTiles[row][col] !== 3
+    return false
+  }
+}
+</script>

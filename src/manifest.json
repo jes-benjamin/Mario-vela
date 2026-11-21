@@ -1,0 +1,29 @@
+{
+  "package": "cat.mario.vela",
+  "name": "喵哩奥",
+  "icon": "/common/images/icon.png",
+  "versionName": "1.0.5",
+  "versionCode": 6,
+  "minAPILevel": 1,
+  "config": {
+    "logLevel": "log",
+    "designWidth": 466
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index",
+        "path": "/"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#1a1a2e"
+  },
+  "deviceTypeList": ["watch"],
+  "features": [
+    { "name": "system.storage" },
+    { "name": "system.device" }
+  ]
+}

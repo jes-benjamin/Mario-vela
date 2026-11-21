@@ -1,0 +1,13 @@
+{
+  "name": "cat-mario-vela",
+  "version": "1.0.0",
+  "description": "猫里奥 Cat Mario platformer game for Xiaomi Watch S4 41mm (VelaOS Quick App)",
+  "scripts": {
+    "build": "aiot build",
+    "release": "aiot release",
+    "dev": "aiot start"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "2.0.5"
+  }
+}

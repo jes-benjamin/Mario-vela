@@ -1,0 +1,11 @@
+<script>
+/**
+ * 猫里奥 Cat Mario — VelaOS Quick App
+ * Target: Xiaomi Watch S4 41mm (466x466 round display)
+ */
+export default {
+  onCreate() {
+    console.info('Cat Mario app created')
+  }
+}
+</script>
