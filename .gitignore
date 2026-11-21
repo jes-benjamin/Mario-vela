@@ -3,3 +3,6 @@ build/
 .temp*/
 *.log
 .DS_Store
+
+# signing key must never be committed
+sign/private.pem
