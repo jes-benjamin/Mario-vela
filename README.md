@@ -27,7 +27,10 @@ Guide the little cat through traps, enemies and lucky blocks — and try to clea
 
 | Device | Resolution |
 |---|---|
-| Xiaomi Watch S4 | 466 × 466 (round) |
+| Xiaomi Watch S4 45mm | 466 × 466 (round) |
+| Xiaomi Watch S5 46mm | 466 × 466 (round) |
+| Xiaomi Watch S4 41mm | 466 × 466 (round) |
+| Xiaomi Watch S5 41mm | 466 × 466 (round) |
 | Xiaomi Smart Band 9 Pro | 336 × 480 |
 | Xiaomi Smart Band 10 Pro | 336 × 480 |
 | Redmi Watch 5 | 432 × 514 |
