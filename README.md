@@ -34,7 +34,8 @@ Guide the little cat through traps, enemies and lucky blocks — and try to clea
 | Xiaomi Smart Band 9 Pro | 336 × 480 |
 | Xiaomi Smart Band 10 Pro | 336 × 480 |
 | Redmi Watch 5 | 432 × 514 |
-| Redmi Watch 6 | 432 × 514 |
+| Redmi Watch 5 eSIM | 432 × 514 |
+| REDMI Watch 6 | 432 × 514 |
 
 The layout is resolution-independent (`designWidth: 466`), so other square/round VelaOS watches should work as well.
 
